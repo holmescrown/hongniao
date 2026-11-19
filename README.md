@@ -23,6 +23,36 @@
 # 只能跑在 Cloudflare。前端本身是纯静态的，两边都可部署。
 # ============================================================
 
+## 〇、线上部署状态（已上线）
+
+| 服务 | 地址 | 状态 |
+|------|------|------|
+| GitHub 源码 | https://github.com/holmescrown/hongniao | 已推送（master / c3346a9） |
+| 前端（CF Pages） | https://hongniao-mahjong.pages.dev | ✅ 已上线，素材与页面验证通过 |
+| 游戏服务（CF Worker） | https://redbird-game-server.whitecrow0a.workers.dev | ✅ 已部署（Durable Objects 房间） |
+| Supabase | 未配置 | 当前前端使用本地 Demo 账号（localStorage） |
+
+演示账号：`demo / demo123`（管理员）、`player1 / 123456`。打开前端后点「一键体验管理员」即可。
+
+**部署命令备忘**（改代码后重新上线）：
+```bash
+# 1) 前端：带 Worker 地址构建并上传到 Pages
+cd web/apps/web
+VITE_GAME_SERVER_URL=https://redbird-game-server.whitecrow0a.workers.dev npm run build
+../game-server/node_modules/.bin/wrangler pages deploy dist --project-name hongniao-mahjong --branch master --commit-dirty=true
+
+# 2) 游戏服务：改了 Worker 代码后
+cd web/apps/game-server
+npm run deploy     # 或 npx wrangler deploy
+
+# 3) 源码同步
+cd web && git add -A && git commit -m "..." && git push
+```
+
+> **网络提示**：`*.workers.dev` 域名在部分地区会被 DNS 污染（解析到无关 IP），导致联机连不上。
+> 若遇到此情况，给 Worker 绑定一个自定义域名（`wrangler.toml` 的 `routes` 或 CF 控制台 Workers → Settings → Domains & Routes），
+> 然后把前端的 `VITE_GAME_SERVER_URL` 改成该域名重新构建即可。前端本身（pages.dev）不受影响。
+
 ## 一、本地开发（零后端，开箱即用）
 
 ```bash

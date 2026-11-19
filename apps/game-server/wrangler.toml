@@ -20,7 +20,8 @@ class_name = "RoomDurableObject"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["RoomDurableObject"]
+# Cloudflare 免费计划必须使用 SQLite 后端 Durable Object
+new_sqlite_classes = ["RoomDurableObject"]
 
 [vars]
 MAX_ROOMS = "500"
