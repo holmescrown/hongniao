@@ -27,21 +27,33 @@
 
 | 服务 | 地址 | 状态 |
 |------|------|------|
-| GitHub 源码 | https://github.com/holmescrown/hongniao | 已推送（master / c3346a9） |
-| 前端（CF Pages） | https://hongniao-mahjong.pages.dev | ✅ 已上线，素材与页面验证通过 |
-| 游戏服务（CF Worker） | https://redbird-game-server.whitecrow0a.workers.dev | ✅ 已部署（Durable Objects 房间） |
+| GitHub 源码 | https://github.com/holmescrown/hongniao | 已推送（master） |
+| 前端（CF Pages） | https://hongniao-mahjong.pages.dev | ✅ 已上线 |
+| 真实联机（同域 WS） | https://hongniao-mahjong.pages.dev/ws | ✅ 双人对战全流程验证通过 |
+| 游戏服务（CF Worker） | https://redbird-game-server.whitecrow0a.workers.dev | ✅ DO 房间，由 Pages 同域代理调用 |
 | Supabase | 未配置 | 当前前端使用本地 Demo 账号（localStorage） |
 
 演示账号：`demo / demo123`（管理员）、`player1 / 123456`。打开前端后点「一键体验管理员」即可。
 
+### 两种游戏模式（大厅可随时切换）
+- 🌐 **联机对战**：真实多人。前端连**同域** `/ws`，由 Pages Function（`functions/ws.ts`）转发到 Durable Object，
+  两人建房/加入/准备/发牌/出牌实时同步，已实测通过。
+- 🤖 **单机练习**：本地 AI 陪玩，可选四档电脑等级：**新手 / 专业 / 高级 / 大师**，
+  AI 的出牌质量、碰杠胡积极性、思考速度随等级递增（高手会按进张评估出牌、做清一色）。
+
+> **为什么用同域 /ws 而不是 workers.dev？** `*.workers.dev` 在部分地区被 DNS 污染（解析到无关 IP），
+> 浏览器直连会超时。改为前端连 `pages.dev` 同域，再由 CF 内部网络把请求转到 DO（不经用户浏览器 DNS），
+> 联机即稳定可用。因此**不需要**自定义域名，也没有"连不上偷偷降级"的情况——联机失败会明确提示。
+
 **部署命令备忘**（改代码后重新上线）：
 ```bash
-# 1) 前端：带 Worker 地址构建并上传到 Pages
+# 1) 前端（含 functions/ws.ts 同域代理）：不注入 VITE_GAME_SERVER_URL，默认走同域 /ws
 cd web/apps/web
-VITE_GAME_SERVER_URL=https://redbird-game-server.whitecrow0a.workers.dev npm run build
+npm run build
 ../game-server/node_modules/.bin/wrangler pages deploy dist --project-name hongniao-mahjong --branch master --commit-dirty=true
+#   wrangler.toml 已声明把外部 Worker 的 RoomDurableObject 绑定为 ROOM
 
-# 2) 游戏服务：改了 Worker 代码后
+# 2) 游戏服务：改了 Worker/DO 代码后
 cd web/apps/game-server
 npm run deploy     # 或 npx wrangler deploy
 
@@ -49,11 +61,8 @@ npm run deploy     # 或 npx wrangler deploy
 cd web && git add -A && git commit -m "..." && git push
 ```
 
-> **网络提示 / 自动降级**：`*.workers.dev` 域名在部分地区会被 DNS 污染（解析到无关 IP），导致联机连不上。
-> 客户端已内置兜底：WebSocket 连接超时或报错时，会**自动切换到本地 AI 模式**并直接开局，页面顶部给出提示，
-> 因此即使 Worker 域名不通也能正常游玩（只是变成人机对战）。
-> 若要用真实联机，给 Worker 绑定一个自定义域名（`wrangler.toml` 的 `routes` 或 CF 控制台 Workers → Settings → Domains & Routes），
-> 然后把前端的 `VITE_GAME_SERVER_URL` 改成该域名重新构建即可。前端本身（pages.dev）不受影响。
+> 若部署到 Vercel（无 Pages Function），需在构建时注入 `VITE_GAME_SERVER_URL=<可访问的 WS 地址>`，
+> 前端会改用该地址直连；此时需确保该域名未被 DNS 污染（可给 Worker 绑自定义域名）。
 
 ## 一、本地开发（零后端，开箱即用）
 

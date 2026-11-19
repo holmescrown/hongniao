@@ -1,0 +1,12 @@
+# Cloudflare Pages 项目配置
+# 前端静态站点 + 同域 /ws 的 Pages Function（functions/ws.ts）代理到 Durable Object
+name = "hongniao-mahjong"
+pages_build_output_dir = "dist"
+compatibility_date = "2024-09-01"
+
+# 绑定已部署在 redbird-game-server Worker 里的房间 Durable Object。
+# 注意：Durable Object 不能定义在 Pages 项目内，只能引用外部 Worker 的 namespace。
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "RoomDurableObject"
+script_name = "redbird-game-server"

@@ -140,6 +140,41 @@ img { display: block; user-select: none; -webkit-user-drag: none; }
 .lobby-inner { position: relative; max-width: 1080px; margin: 0 auto; padding: 26px 20px 60px; }
 .lobby-heading { color: var(--gold-300); font-size: 26px; font-weight: 800; letter-spacing: 3px; text-shadow: 0 3px 8px rgba(0,0,0,.6); margin-bottom: 4px; }
 .lobby-desc { color: #e0cfae; font-size: 13px; margin-bottom: 24px; text-shadow: 0 2px 4px rgba(0,0,0,.7); }
+
+/* 模式切换：联机 / 单机 */
+.mode-switch { display: inline-flex; gap: 6px; margin: 16px 0 12px; padding: 5px; background: rgba(20,8,5,.7); border: 1px solid rgba(245,217,138,.28); border-radius: 12px; }
+.mode-tab {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  padding: 10px 20px; border: 1px solid transparent; border-radius: 9px;
+  background: transparent; color: #d9c9a8; font-size: 15px; font-weight: 700;
+  transition: all .18s;
+}
+.mode-tab span { font-size: 11px; font-weight: 400; opacity: .7; }
+.mode-tab:hover { background: rgba(245,217,138,.1); }
+.mode-tab.active {
+  background: linear-gradient(135deg, #b8862f, #e8c46a);
+  color: #2a1408; border-color: #f5d98a;
+  box-shadow: 0 3px 12px rgba(232,196,106,.4);
+}
+.mode-tab.active span { opacity: .85; }
+
+/* 单机 AI 难度选择 */
+.level-picker {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
+  margin: -6px 0 20px; padding: 12px 16px;
+  background: rgba(30,14,9,.66); border: 1px solid rgba(245,217,138,.24); border-radius: 11px;
+}
+.level-picker-label { color: var(--gold-300); font-size: 13px; font-weight: 700; white-space: nowrap; }
+.level-options { display: flex; gap: 8px; flex-wrap: wrap; }
+.level-chip {
+  cursor: pointer; padding: 6px 15px; border-radius: 18px;
+  border: 1px solid rgba(245,217,138,.4); background: rgba(60,26,16,.8);
+  color: #e8d7b0; font-size: 13px; transition: all .16s;
+}
+.level-chip:hover { border-color: var(--gold-300); }
+.level-chip.active { background: linear-gradient(135deg,#8c2f1f,#c14b2e); color: #fff; border-color: #f0a878; font-weight: 700; box-shadow: 0 2px 9px rgba(193,75,46,.5); }
+.level-desc { color: #c7b48f; font-size: 12px; opacity: .85; }
+
 .room-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; }
 .room-card {
   position: relative; overflow: hidden; cursor: pointer;

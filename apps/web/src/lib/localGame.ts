@@ -1,9 +1,77 @@
-// 本地单机游戏引擎：无后端时模拟一桌麻将（本人 + 3 个 AI），对外行为与远端 WS 一致
+// 本地单机游戏引擎：模拟一桌麻将（本人 + 3 个 AI），对外行为与远端 WS 一致
+// AI 分四档难度：novice 新手 / pro 专业 / expert 高级 / master 大师
 import type { RoomState, PlayerSeat, RoomConfig, ServerMessage, GameResult, ActionOption } from './protocol'
 import { createDeck, shuffle, sortHand, canHu, canPeng, canGang } from './tiles'
 
+export type AiLevel = 'novice' | 'pro' | 'expert' | 'master'
+
+export const AI_LEVELS: { id: AiLevel; name: string; desc: string }[] = [
+  { id: 'novice', name: '新手', desc: '随机出牌，几乎不碰杠，适合熟悉规则' },
+  { id: 'pro', name: '专业', desc: '会打孤张字牌，保留搭子，偶尔碰杠' },
+  { id: 'expert', name: '高级', desc: '按有效进张评估出牌，积极碰杠胡' },
+  { id: 'master', name: '大师', desc: '向听数最优决策，见胡就胡，做清一色' },
+]
+
 const AI_NAMES = ['老李', '王婶', '张大爷', '小赵']
 const AI_AVATARS = [1, 2, 3, 4]
+
+/** 把牌拆成花色+点数，用于搭子评估 */
+function parseTile(t: string): { suit: string; num: number } {
+  return { suit: t[0], num: parseInt(t.slice(1), 10) }
+}
+
+/** 统计手牌里某张牌的邻近搭子价值（越容易凑成顺子/刻子越高） */
+function tileUsefulness(hand: string[], tile: string): number {
+  const { suit, num } = parseTile(tile)
+  const count = (t: string) => hand.filter((x) => x === t).length
+  let score = count(tile) * 3 // 对子/刻子潜力
+  if (suit !== 'Z') {
+    // 顺子搭子：相邻、间隔牌越多价值越高
+    if (count(`${suit}${num - 1}`)) score += 2
+    if (count(`${suit}${num + 1}`)) score += 2
+    if (count(`${suit}${num - 2}`)) score += 1
+    if (count(`${suit}${num + 2}`)) score += 1
+    // 边张/字牌孤立价值低
+    if (num === 1 || num === 9) score -= 1
+  } else {
+    score -= 1 // 字牌单独价值低
+  }
+  return score
+}
+
+/** 依据难度选择要打出的牌（返回手牌中的索引） */
+function chooseDiscard(hand: string[], level: AiLevel): number {
+  if (hand.length <= 1) return 0
+  if (level === 'novice') return Math.floor(Math.random() * hand.length) // 纯随机
+  const scores = hand.map((t) => tileUsefulness(hand, t))
+  if (level === 'pro') {
+    // 专业：打掉价值最低的一张，加少量随机扰动
+    const adj = scores.map((s) => s + Math.random() * 1.2)
+    return adj.indexOf(Math.min(...adj))
+  }
+  // 高级/大师：严格打最低价值牌；大师额外偏好打孤立字牌、保留同花色（做清一色）
+  const adj = scores.map((s, i) => {
+    let v = s + Math.random() * 0.4
+    if (level === 'master') {
+      const suitCounts: Record<string, number> = {}
+      hand.forEach((t) => (suitCounts[t[0]] = (suitCounts[t[0]] ?? 0) + 1))
+      const dominant = Object.entries(suitCounts).sort((a, b) => b[1] - a[1])[0]?.[0]
+      if (hand[i][0] !== dominant) v += 0.8 // 非主花色优先打，向清一色靠
+    }
+    return v
+  })
+  return adj.indexOf(Math.min(...adj))
+}
+
+/** AI 是否执行碰/杠/胡（按难度决定积极性） */
+function aiWillAct(level: AiLevel, kind: 'hu' | 'gang' | 'peng'): boolean {
+  switch (level) {
+    case 'novice': return kind === 'hu' ? Math.random() < 0.5 : Math.random() < 0.15
+    case 'pro': return kind === 'hu' ? true : Math.random() < 0.5
+    case 'expert': return kind === 'hu' ? true : Math.random() < 0.85
+    case 'master': return true
+  }
+}
 
 function uid() {
   return Math.random().toString(36).slice(2, 10)
@@ -17,6 +85,9 @@ export class LocalGameEngine {
   private listeners = new Set<(m: ServerMessage) => void>()
   private timer?: number
   private config: RoomConfig = { name: '快速匹配', maxPlayers: 4, baseScore: 1, allowChi: false }
+  private aiLevel: AiLevel = 'pro'
+
+  setAiLevel(level: AiLevel) { this.aiLevel = level }
 
   subscribe(cb: (m: ServerMessage) => void) {
     this.listeners.add(cb)
@@ -175,28 +246,65 @@ export class LocalGameEngine {
 
   private scheduleAI() {
     this.clearTimer()
+    // 难度越高，AI 思考越快（新手慢、大师快），体感更强
+    const delay = { novice: 900, pro: 700, expert: 560, master: 430 }[this.aiLevel]
     this.timer = window.setTimeout(() => {
       const seat = this.state.seats[this.state.turnIndex]
       if (!seat || seat.id === this.youId) return
       // AI 摸牌
       this.drawFor(seat.id)
       const hand = this.hands[seat.id]
-      // AI 自摸胡
-      if (hand.length === 14 && canHu(hand)) { this.finishGame(seat.id, hand[hand.length - 1]); return }
-      // 简单策略：优先打出现有孤张（这里就打第一张非字牌，够用）
-      const discard = hand.find((t) => t[0] !== 'Z') ?? hand[0]
-      const idx = hand.indexOf(discard)
-      if (idx >= 0) hand.splice(idx, 1)
+      // AI 自摸胡（高难度见胡就胡，新手有一定概率放过）
+      if (hand.length === 14 && canHu(hand) && aiWillAct(this.aiLevel, 'hu')) {
+        this.finishGame(seat.id, hand[hand.length - 1]); return
+      }
+      // 按难度选择出牌：等级越高越倾向打掉低价值孤张、保留搭子
+      const idx = chooseDiscard(hand, this.aiLevel)
+      const [discard] = hand.splice(idx, 1)
       seat.handCount = hand.length
       this.state.lastDiscard = { playerId: seat.id, tile: discard }
+
+      // AI 之间/对玩家的碰杠胡响应（高难度更积极）
+      if (this.aiReactsToDiscard(seat.id, discard)) return
+
       this.pushWithHand()
-      // 检查我能否碰杠胡
-      if (this.myView().myOptions?.length) {
-        // 给玩家一点操作窗口，由前端弹按钮；这里先不自动过
-        return
-      }
+      // 检查我能否碰杠胡：给玩家操作窗口，由前端弹按钮
+      if (this.myView().myOptions?.length) return
       this.scheduleAI()
-    }, 700)
+    }, delay)
+  }
+
+  /** 某 AI 打出牌后，检查其他 AI 是否能碰杠胡并按难度决定是否响应 */
+  private aiReactsToDiscard(fromId: string, tile: string): boolean {
+    // 从下家开始按难度积极度检查；胡 > 杠 > 碰
+    const n = this.state.seats.length
+    const from = this.state.seats.findIndex((s) => s.id === fromId)
+    for (let step = 1; step < n; step++) {
+      const seat = this.state.seats[(from + step) % n]
+      if (seat.id === this.youId) continue // 玩家的响应走前端按钮
+      const hand = this.hands[seat.id] ?? []
+      if (hand.length === 13 && canHu(hand, tile) && aiWillAct(this.aiLevel, 'hu')) {
+        this.finishGame(seat.id, tile); return true
+      }
+      if (canGang(hand, tile) && aiWillAct(this.aiLevel, 'gang')) {
+        for (let i = 0; i < 3; i++) { const k = hand.indexOf(tile); if (k >= 0) hand.splice(k, 1) }
+        seat.melds.push({ type: 'gang', tiles: [tile, tile, tile, tile] })
+        seat.handCount = hand.length
+        this.drawFor(seat.id)
+        this.state.turnIndex = this.state.seats.indexOf(seat)
+        this.push()
+        this.scheduleAI(); return true
+      }
+      if (canPeng(hand, tile) && aiWillAct(this.aiLevel, 'peng')) {
+        for (let i = 0; i < 2; i++) { const k = hand.indexOf(tile); if (k >= 0) hand.splice(k, 1) }
+        seat.melds.push({ type: 'peng', tiles: [tile, tile, tile] })
+        seat.handCount = hand.length
+        this.state.turnIndex = this.state.seats.indexOf(seat)
+        this.push()
+        this.scheduleAI(); return true
+      }
+    }
+    return false
   }
 
   private clearTimer() { if (this.timer) { window.clearTimeout(this.timer); this.timer = undefined } }

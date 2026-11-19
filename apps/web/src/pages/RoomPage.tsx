@@ -18,58 +18,46 @@ export default function RoomPage() {
   const [selected, setSelected] = useState<string | null>(null)
 
   useEffect(() => {
-    const nick = () => profile?.username ?? '我'
-    const av = () => (typeof profile?.avatar === 'number' ? (profile.avatar as number) : 0)
+    // 身份优先取大厅持久化的值，避免 profile 异步加载导致昵称不一致
+    const nick = () => sessionStorage.getItem('redbird_my_nick') || profile?.username || '我'
+    const av = () => {
+      const a = sessionStorage.getItem('redbird_my_avatar')
+      return a !== null ? Number(a) : (typeof profile?.avatar === 'number' ? (profile.avatar as number) : 0)
+    }
+    const cfg = JSON.parse(sessionStorage.getItem('redbird_room_cfg') || 'null')
 
-    // 本地模式开局：大厅阶段的建房消息早于本页订阅而被丢弃，故补发一次，
-    // 保证当前订阅者能收到 room_state。重复建局只会把房间重置为 waiting，无副作用。
-    const initLocalGame = () => {
-      const cfg = JSON.parse(sessionStorage.getItem('redbird_room_cfg') || 'null')
+    const unsub = gameClient.subscribe((m) => {
+      if (m.type === 'room_state') { setRoom(m.room); setYouId(m.youId) }
+      else if (m.type === 'error') toast(m.message)
+      else if (m.type === 'game_over') { setResult(m.result); setRoom(m.room) }
+    })
+
+    const isFresh = sessionStorage.getItem('redbird_room_fresh') === '1'
+    gameClient.connect()
+
+    if (!gameClient.isRemote()) {
+      // 单机模式：大厅阶段的建房消息早于本页订阅而被丢弃，故补发一次开局并自动开始
       window.setTimeout(() => {
         if (cfg && cfg.name !== '快速匹配') {
           gameClient.send({ type: 'create_room', nickname: nick(), avatar: av(), config: cfg })
         } else {
           gameClient.send({ type: 'quick_match', nickname: nick(), avatar: av() })
         }
-      }, 60)
-    }
-
-    let initedLocal = false
-    const unsub = gameClient.subscribe((m) => {
-      if (m.type === 'room_state') { setRoom(m.room); setYouId(m.youId) }
-      else if (m.type === 'error') toast(m.message)
-      else if (m.type === 'game_over') { setResult(m.result); setRoom(m.room) }
-    })
-    // 联机失败自动降级为本地时，补发一局本地游戏（降级提示已由 error 消息给出）
-    const unsubMode = gameClient.onModeChange(() => {
-      if (initedLocal) return
-      initedLocal = true
-      initLocalGame()
-      // 快速匹配场景：降级后自动开局，用户无需再点“开始游戏”
-      const cfg = JSON.parse(sessionStorage.getItem('redbird_room_cfg') || 'null')
-      if (!cfg || cfg.name === '快速匹配') {
-        window.setTimeout(() => gameClient.send({ type: 'start_game' }), 350)
-      }
-    })
-
-    gameClient.connect()
-
-    if (!gameClient.isRemote()) {
-      // 未配置远端地址：直接本地模式
-      initedLocal = true
-      initLocalGame()
-    } else {
-      // 远端模式刷新重连：带房间号重新入座（若期间降级为本地则跳过）
+        window.setTimeout(() => gameClient.send({ type: 'start_game' }), 400)
+      }, 80)
+    } else if (!isFresh) {
+      // 联机模式、且是刷新进入（非刚从大厅进来）：带房间号重新入座复活座位。
+      // 刚从大厅进来时建房消息已在 pending 队列，跳过 join_room 以免重复入座。
       const roomId = sessionStorage.getItem('redbird_room_id')
       if (roomId) {
         window.setTimeout(() => {
-          if (gameClient.isRemote()) {
-            gameClient.send({ type: 'join_room', roomId, nickname: nick(), avatar: av() })
-          }
+          gameClient.send({ type: 'join_room', roomId, nickname: nick(), avatar: av() })
         }, 250)
       }
     }
-    return () => { unsub(); unsubMode() }
+    // 消费 fresh 标记：首次挂载后，再次刷新即视为 reconnect
+    sessionStorage.removeItem('redbird_room_fresh')
+    return () => { unsub() }
   }, [])
 
   const mySeat = room?.seats.find((s) => s.id === youId)
@@ -90,8 +78,10 @@ export default function RoomPage() {
   const ready = (v: boolean) => gameClient.send({ type: 'ready', ready: v })
   const leaveRoom = () => {
     gameClient.send({ type: 'leave_room' })
+    gameClient.disconnect()
     gameClient.resetLocal()
-    sessionStorage.removeItem('redbird_room_cfg')
+    ;['redbird_room_cfg', 'redbird_room_id', 'redbird_room_fresh', 'redbird_my_nick', 'redbird_my_avatar']
+      .forEach((k) => sessionStorage.removeItem(k))
     nav('/lobby')
   }
 
