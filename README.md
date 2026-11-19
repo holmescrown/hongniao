@@ -49,8 +49,10 @@ npm run deploy     # 或 npx wrangler deploy
 cd web && git add -A && git commit -m "..." && git push
 ```
 
-> **网络提示**：`*.workers.dev` 域名在部分地区会被 DNS 污染（解析到无关 IP），导致联机连不上。
-> 若遇到此情况，给 Worker 绑定一个自定义域名（`wrangler.toml` 的 `routes` 或 CF 控制台 Workers → Settings → Domains & Routes），
+> **网络提示 / 自动降级**：`*.workers.dev` 域名在部分地区会被 DNS 污染（解析到无关 IP），导致联机连不上。
+> 客户端已内置兜底：WebSocket 连接超时或报错时，会**自动切换到本地 AI 模式**并直接开局，页面顶部给出提示，
+> 因此即使 Worker 域名不通也能正常游玩（只是变成人机对战）。
+> 若要用真实联机，给 Worker 绑定一个自定义域名（`wrangler.toml` 的 `routes` 或 CF 控制台 Workers → Settings → Domains & Routes），
 > 然后把前端的 `VITE_GAME_SERVER_URL` 改成该域名重新构建即可。前端本身（pages.dev）不受影响。
 
 ## 一、本地开发（零后端，开箱即用）
