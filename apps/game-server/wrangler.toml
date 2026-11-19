@@ -1,0 +1,26 @@
+name = "redbird-game-server"
+main = "src/index.ts"
+compatibility_date = "2024-09-01"
+
+# ---------------------------------------------------------------------------
+# 部署说明
+#   npm install            安装依赖
+#   npm run dev            本地开发（默认 http://localhost:8787）
+#   npm run types          生成 worker-configuration.d.ts 类型声明
+#   npx wrangler deploy    部署到 Cloudflare（首次会提示登录）
+#   npx wrangler tail      实时查看线上日志
+#
+# 前端连接地址示例：
+#   wss://redbird-game-server.<你的账户>.workers.dev/ws?roomId=ABC123
+# ---------------------------------------------------------------------------
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "RoomDurableObject"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RoomDurableObject"]
+
+[vars]
+MAX_ROOMS = "500"
